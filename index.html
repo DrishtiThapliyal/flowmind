@@ -159,9 +159,74 @@
 
   footer{ text-align:center; color: var(--text-muted); font-size:0.78rem; margin-top:56px; }
   footer .heart{ color: var(--ember); }
+  footer .kbd-hint{ margin-top:6px; opacity:0.7; }
+  kbd{ font-family:'JetBrains Mono', monospace; background:var(--ink-2); border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-size:0.72rem; }
+
+  /* --- Ember particle background --- */
+  #emberCanvas{ position:fixed; inset:0; width:100vw; height:100vh; z-index:0; pointer-events:none; }
+  .wrap{ position:relative; z-index:1; }
+
+  /* --- Confetti overlay --- */
+  #confettiCanvas{ position:fixed; inset:0; width:100vw; height:100vh; z-index:50; pointer-events:none; }
+
+  /* --- Stat bar --- */
+  .stat-bar{
+    display:flex; gap:14px; flex-wrap:wrap; margin-bottom:32px;
+  }
+  .stat-pill{
+    flex:1; min-width:130px; background: var(--ink-2); border:1px solid var(--line); border-radius:14px;
+    padding:14px 16px; display:flex; flex-direction:column; gap:2px;
+  }
+  .stat-pill .stat-value{ font-family:'JetBrains Mono', monospace; font-size:1.4rem; font-weight:700; color: var(--ember); }
+  .stat-pill .stat-label{ font-size:0.72rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--text-muted); }
+  .stat-pill.streak-hot .stat-value{ color:#F0A85F; }
+
+  /* --- Ambient sound toggle --- */
+  .sound-row{ display:flex; gap:8px; margin-top:16px; }
+  .sound-btn{
+    font-family:'Inter'; font-size:0.76rem; font-weight:600;
+    background:transparent; border:1px solid var(--line); color:var(--text-muted);
+    padding:6px 12px; border-radius:999px; cursor:pointer; transition:.2s;
+    display:flex; align-items:center; gap:6px;
+  }
+  .sound-btn.active{ background: var(--sage); border-color: var(--sage); color: var(--ink); }
+  .sound-wave{ display:inline-flex; gap:2px; align-items:flex-end; height:10px; }
+  .sound-wave span{ width:2px; background:currentColor; animation: wave 0.9s infinite ease-in-out; }
+  .sound-btn:not(.active) .sound-wave span{ animation-play-state:paused; height:3px !important; }
+  .sound-wave span:nth-child(1){ animation-delay:0s; }
+  .sound-wave span:nth-child(2){ animation-delay:0.15s; }
+  .sound-wave span:nth-child(3){ animation-delay:0.3s; }
+  @keyframes wave{ 0%,100%{height:3px;} 50%{height:10px;} }
+
+  /* --- Task priority dot --- */
+  .task-priority{
+    width:11px; height:11px; border-radius:50%; cursor:pointer; flex-shrink:0;
+    border:1px solid rgba(0,0,0,0.25);
+    background: #9aa5a1;
+  }
+  .task-priority[data-p="high"]{ background:#D9634A; }
+  .task-priority[data-p="med"]{ background:#E0A94E; }
+  .task-priority[data-p="low"]{ background:#8FA998; }
+
+  /* --- Toast --- */
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+    background: var(--ink-2); border:1px solid var(--ember); color:var(--text-light);
+    padding:12px 20px; border-radius:12px; font-size:0.88rem; box-shadow:var(--shadow);
+    opacity:0; pointer-events:none; transition: opacity .35s ease, transform .35s ease; z-index:60;
+    display:flex; align-items:center; gap:8px;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  /* --- Focus mode dimming --- */
+  body.in-session .card:not(.focus-card){ opacity:0.5; filter:saturate(0.7); transition: opacity .6s ease, filter .6s ease; }
+  body.in-session .focus-card{ box-shadow: 0 0 0 1px rgba(232,147,91,0.4), var(--shadow), 0 0 60px rgba(232,147,91,0.08); transition: box-shadow .6s ease; }
 </style>
 </head>
 <body>
+<canvas id="emberCanvas"></canvas>
+<canvas id="confettiCanvas"></canvas>
+<div class="toast" id="toast"></div>
 <div class="wrap">
 
   <header class="hero">
@@ -171,6 +236,21 @@
     </div>
     <div class="date-chip" id="dateChip"></div>
   </header>
+
+  <div class="stat-bar" id="statBar">
+    <div class="stat-pill">
+      <div class="stat-value" id="statSessions">0</div>
+      <div class="stat-label">Sessions completed</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-value" id="statMinutes">0</div>
+      <div class="stat-label">Minutes focused</div>
+    </div>
+    <div class="stat-pill" id="streakPill">
+      <div class="stat-value" id="statStreak">0</div>
+      <div class="stat-label">Day streak</div>
+    </div>
+  </div>
 
   <div class="grid">
     <!-- FOCUS TIMER -->
@@ -200,6 +280,11 @@
       <div class="timer-controls">
         <button class="btn btn-primary" id="startBtn">Start</button>
         <button class="btn btn-ghost" id="resetBtn">Reset</button>
+      </div>
+      <div class="sound-row" id="soundRow">
+        <button class="sound-btn active" data-sound="none">Silence</button>
+        <button class="sound-btn" data-sound="rain">🌧 Rain <span class="sound-wave"><span></span><span></span><span></span></span></button>
+        <button class="sound-btn" data-sound="brown">🌊 Brown noise <span class="sound-wave"><span></span><span></span><span></span></span></button>
       </div>
     </div>
 
@@ -237,7 +322,10 @@
     <div class="plan-output placeholder" id="planOutput">Your personalized plan will appear here once you generate it.</div>
   </div>
 
-  <footer>Built with <span class="heart">♥</span> for Hackhazards '26 — Human Experience &amp; Productivity</footer>
+  <footer>
+    Built with <span class="heart">♥</span> for Hackhazards '26 — Human Experience &amp; Productivity
+    <div class="kbd-hint"><kbd>Space</kbd> start/pause &nbsp; <kbd>R</kbd> reset &nbsp; <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> switch mode</div>
+  </footer>
 </div>
 
 <script>
@@ -263,38 +351,55 @@
   }
   renderTimer();
 
+  let isFocusSession = true;
   document.querySelectorAll('.mode-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       totalSeconds = parseInt(btn.dataset.mins)*60;
       remaining = totalSeconds;
+      isFocusSession = btn.textContent.trim().toLowerCase().startsWith('focus');
       clearInterval(timerId); running=false; startBtn.textContent='Start';
       labelEl.textContent = 'ready when you are';
       renderTimer();
     });
   });
 
-  startBtn.addEventListener('click', ()=>{
-    if(running){
-      clearInterval(timerId); running=false; startBtn.textContent='Start'; labelEl.textContent='paused';
-      return;
-    }
+  function startTimer(){
+    if(running) return;
     running = true; startBtn.textContent='Pause'; labelEl.textContent='in flow…';
+    document.body.classList.add('in-session');
     timerId = setInterval(()=>{
       remaining--;
       if(remaining<=0){
         clearInterval(timerId); running=false; remaining=0; startBtn.textContent='Start';
         labelEl.textContent='session complete ✓';
+        document.body.classList.remove('in-session');
+        onSessionComplete();
       }
       renderTimer();
     },1000);
-  });
+  }
+  function pauseTimer(){
+    if(!running) return;
+    clearInterval(timerId); running=false; startBtn.textContent='Start'; labelEl.textContent='paused';
+    document.body.classList.remove('in-session');
+  }
+  startBtn.addEventListener('click', ()=>{ running ? pauseTimer() : startTimer(); });
 
   document.getElementById('resetBtn').addEventListener('click', ()=>{
     clearInterval(timerId); running=false; remaining=totalSeconds; startBtn.textContent='Start';
-    labelEl.textContent='ready when you are'; renderTimer();
+    labelEl.textContent='ready when you are'; document.body.classList.remove('in-session'); renderTimer();
   });
+
+  function onSessionComplete(){
+    if(!isFocusSession) return; // breaks don't count toward stats/celebration
+    playChime();
+    burstConfetti();
+    updateStats(totalSeconds/60);
+    notifyUser('Focus session complete 🌤', "Nice work — you protected " + Math.round(totalSeconds/60) + " minutes of attention.");
+    showToast('Session complete — great focus. ✓');
+  }
 
   // ---------- Tasks ----------
   const taskList = document.getElementById('taskList');
@@ -312,6 +417,7 @@
       const li = document.createElement('li');
       li.className = 'task-card' + (t.done ? ' done':'');
       li.innerHTML = `
+        <span class="task-priority" data-p="${t.priority}" data-i="${i}" title="Click to change priority"></span>
         <input type="checkbox" ${t.done?'checked':''} data-i="${i}" class="chk" />
         <span>${t.text}</span>
         <button class="task-remove" data-i="${i}">✕</button>
@@ -330,12 +436,22 @@
         renderTasks();
       });
     });
+    const priorityCycle = ['low','med','high'];
+    taskList.querySelectorAll('.task-priority').forEach(dot=>{
+      dot.addEventListener('click', e=>{
+        const i = e.target.dataset.i;
+        const cur = tasks[i].priority;
+        const next = priorityCycle[(priorityCycle.indexOf(cur)+1) % priorityCycle.length];
+        tasks[i].priority = next;
+        renderTasks();
+      });
+    });
   }
 
   function addTask(){
     const val = taskInput.value.trim();
     if(!val) return;
-    tasks.push({text: val, done:false});
+    tasks.push({text: val, done:false, priority:'med'});
     taskInput.value='';
     renderTasks();
   }
@@ -366,7 +482,7 @@
     planOutput.innerHTML = 'Thinking through your day<span class="loading-dots"></span>';
     planBtn.disabled = true;
 
-    const taskText = tasks.map(t=>`- ${t.text}${t.done?' (already done)':''}`).join('\n');
+    const taskText = tasks.map(t=>`- [${t.priority} priority] ${t.text}${t.done?' (already done)':''}`).join('\n');
     const mood = selectedMood || 'not specified';
 
     try{
@@ -390,6 +506,228 @@
       console.error(err);
     }finally{
       planBtn.disabled = false;
+    }
+  });
+
+  // ---------- Toast ----------
+  const toastEl = document.getElementById('toast');
+  let toastTimer = null;
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> toastEl.classList.remove('show'), 3200);
+  }
+
+  // ---------- Browser notification ----------
+  function notifyUser(title, body){
+    if(!('Notification' in window)) return;
+    if(Notification.permission === 'granted'){
+      new Notification(title, { body });
+    } else if(Notification.permission !== 'denied'){
+      Notification.requestPermission().then(p=>{
+        if(p === 'granted') new Notification(title, { body });
+      });
+    }
+  }
+
+  // ---------- Chime (Web Audio, no external files) ----------
+  let chimeCtx = null;
+  function playChime(){
+    try{
+      chimeCtx = chimeCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const now = chimeCtx.currentTime;
+      [523.25, 659.25, 783.99].forEach((freq, idx)=>{
+        const osc = chimeCtx.createOscillator();
+        const gain = chimeCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, now + idx*0.12);
+        gain.gain.linearRampToValueAtTime(0.18, now + idx*0.12 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx*0.12 + 1.1);
+        osc.connect(gain).connect(chimeCtx.destination);
+        osc.start(now + idx*0.12);
+        osc.stop(now + idx*0.12 + 1.2);
+      });
+    }catch(e){ console.warn('Chime unavailable', e); }
+  }
+
+  // ---------- Stats & streak (persisted) ----------
+  const statSessions = document.getElementById('statSessions');
+  const statMinutes = document.getElementById('statMinutes');
+  const statStreak = document.getElementById('statStreak');
+  const streakPill = document.getElementById('streakPill');
+
+  function loadStats(){
+    try{
+      return JSON.parse(localStorage.getItem('flowmind_stats')) || { sessions:0, minutes:0, streak:0, lastDate:null };
+    }catch(e){ return { sessions:0, minutes:0, streak:0, lastDate:null }; }
+  }
+  function saveStats(s){
+    try{ localStorage.setItem('flowmind_stats', JSON.stringify(s)); }catch(e){}
+  }
+  function renderStats(s){
+    statSessions.textContent = s.sessions;
+    statMinutes.textContent = s.minutes;
+    statStreak.textContent = s.streak;
+    streakPill.classList.toggle('streak-hot', s.streak >= 3);
+  }
+  function todayStr(d=new Date()){ return d.toISOString().slice(0,10); }
+  function updateStats(minutesAdded){
+    const s = loadStats();
+    s.sessions += 1;
+    s.minutes += Math.round(minutesAdded);
+    const today = todayStr();
+    const yesterday = todayStr(new Date(Date.now() - 86400000));
+    if(s.lastDate === today){
+      // already counted today, streak unchanged
+    } else if(s.lastDate === yesterday){
+      s.streak += 1;
+    } else {
+      s.streak = 1;
+    }
+    s.lastDate = today;
+    saveStats(s);
+    renderStats(s);
+  }
+  renderStats(loadStats());
+
+  // ---------- Confetti burst ----------
+  const confettiCanvas = document.getElementById('confettiCanvas');
+  const cctx = confettiCanvas.getContext('2d');
+  function resizeConfetti(){ confettiCanvas.width = innerWidth; confettiCanvas.height = innerHeight; }
+  resizeConfetti(); window.addEventListener('resize', resizeConfetti);
+  const confettiColors = ['#E8935B','#C97440','#8FA998','#F3EDE0','#F0A85F'];
+  let confettiPieces = [];
+  let confettiRAF = null;
+  function burstConfetti(){
+    const originX = innerWidth/2, originY = innerHeight*0.35;
+    for(let i=0;i<90;i++){
+      const angle = Math.random()*Math.PI*2;
+      const speed = 3 + Math.random()*7;
+      confettiPieces.push({
+        x: originX, y: originY,
+        vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed - 2,
+        size: 4 + Math.random()*5,
+        color: confettiColors[Math.floor(Math.random()*confettiColors.length)],
+        rot: Math.random()*Math.PI, vr: (Math.random()-0.5)*0.3,
+        life: 0, maxLife: 70 + Math.random()*40
+      });
+    }
+    if(!confettiRAF) confettiRAF = requestAnimationFrame(animateConfetti);
+  }
+  function animateConfetti(){
+    cctx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+    confettiPieces.forEach(p=>{
+      p.vy += 0.12; p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.life++;
+      cctx.save();
+      cctx.globalAlpha = Math.max(0, 1 - p.life/p.maxLife);
+      cctx.translate(p.x, p.y); cctx.rotate(p.rot);
+      cctx.fillStyle = p.color;
+      cctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*0.6);
+      cctx.restore();
+    });
+    confettiPieces = confettiPieces.filter(p=> p.life < p.maxLife);
+    if(confettiPieces.length){
+      confettiRAF = requestAnimationFrame(animateConfetti);
+    } else {
+      confettiRAF = null;
+      cctx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+    }
+  }
+
+  // ---------- Ember particle background ----------
+  const emberCanvas = document.getElementById('emberCanvas');
+  const ectx = emberCanvas.getContext('2d');
+  function resizeEmber(){ emberCanvas.width = innerWidth; emberCanvas.height = innerHeight; }
+  resizeEmber(); window.addEventListener('resize', resizeEmber);
+  let embers = Array.from({length: 36}, ()=> spawnEmber());
+  function spawnEmber(){
+    return {
+      x: Math.random()*innerWidth,
+      y: innerHeight + Math.random()*100,
+      r: 0.6 + Math.random()*1.8,
+      speed: 0.15 + Math.random()*0.35,
+      drift: (Math.random()-0.5)*0.3,
+      alpha: 0.15 + Math.random()*0.35,
+      flicker: Math.random()*Math.PI*2
+    };
+  }
+  function animateEmbers(){
+    ectx.clearRect(0,0,emberCanvas.width, emberCanvas.height);
+    const speedMult = running ? 2.2 : 1; // embers rise faster during an active focus session
+    embers.forEach(e=>{
+      e.y -= e.speed * speedMult;
+      e.x += e.drift;
+      e.flicker += 0.05;
+      if(e.y < -10){ Object.assign(e, spawnEmber(), { y: emberCanvas.height + 10 }); }
+      const a = e.alpha * (0.6 + 0.4*Math.sin(e.flicker));
+      ectx.beginPath();
+      ectx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+      ectx.fillStyle = `rgba(232,147,91,${a})`;
+      ectx.fill();
+    });
+    requestAnimationFrame(animateEmbers);
+  }
+  animateEmbers();
+
+  // ---------- Ambient soundscape (Web Audio, no external files) ----------
+  let soundCtx = null, soundSource = null, soundFilter = null, soundGain = null;
+  function stopSound(){
+    if(soundSource){ try{ soundSource.stop(); }catch(e){} soundSource = null; }
+  }
+  function makeNoiseBuffer(ctx){
+    const bufferSize = 2 * ctx.sampleRate;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let lastOut = 0;
+    for(let i=0;i<bufferSize;i++){
+      const white = Math.random()*2 - 1;
+      lastOut = (lastOut + 0.02*white) / 1.02; // brown-ish
+      data[i] = lastOut * 3.5;
+    }
+    return buffer;
+  }
+  function playSound(kind){
+    stopSound();
+    if(kind === 'none') return;
+    soundCtx = soundCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const buffer = makeNoiseBuffer(soundCtx);
+    soundSource = soundCtx.createBufferSource();
+    soundSource.buffer = buffer;
+    soundSource.loop = true;
+    soundFilter = soundCtx.createBiquadFilter();
+    soundGain = soundCtx.createGain();
+    if(kind === 'rain'){
+      soundFilter.type = 'highpass';
+      soundFilter.frequency.value = 1200;
+      soundGain.gain.value = 0.05;
+    } else { // brown noise
+      soundFilter.type = 'lowpass';
+      soundFilter.frequency.value = 400;
+      soundGain.gain.value = 0.12;
+    }
+    soundSource.connect(soundFilter).connect(soundGain).connect(soundCtx.destination);
+    soundSource.start();
+  }
+  document.querySelectorAll('.sound-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.sound-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      playSound(btn.dataset.sound);
+    });
+  });
+
+  // ---------- Keyboard shortcuts ----------
+  document.addEventListener('keydown', e=>{
+    const tag = document.activeElement.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA') return; // don't hijack typing
+    if(e.code === 'Space'){ e.preventDefault(); running ? pauseTimer() : startTimer(); }
+    else if(e.key.toLowerCase() === 'r'){ document.getElementById('resetBtn').click(); }
+    else if(['1','2','3'].includes(e.key)){
+      const btns = document.querySelectorAll('.mode-btn');
+      const idx = parseInt(e.key) - 1;
+      if(btns[idx]) btns[idx].click();
     }
   });
 </script>
