@@ -62,7 +62,7 @@ python3 -m http.server 8000
 
 ## 👥 Team
 
-- [Your name] — Solo builder
+- Drishti — Solo builder
 
 ## 📋 Evaluation Notes
 
